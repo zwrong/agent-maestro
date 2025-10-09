@@ -5,6 +5,7 @@ import { streamSSE } from "hono/streaming";
 import * as vscode from "vscode";
 
 import { getChatModelClient } from "../../utils/chatModels";
+import { getClaudeConfiguredModels } from "../../utils/claude";
 import { logger } from "../../utils/logger";
 import {
   AnthropicCountTokensResponseSchema,
@@ -18,6 +19,53 @@ import {
   convertAnthropicToolChoiceToVSCode,
   convertAnthropicToolToVSCode,
 } from "../utils/anthropic";
+
+/**
+ * Apply Claude model selection logic based on user configuration
+ *
+ * This function is Anthropic/Claude-specific and handles:
+ * 1. Checking if the model is a Claude model
+ * 2. Getting user's configured models from .claude/settings.json
+ * 3. Validating requested model against configured models
+ * 4. Returning the effective model ID to use
+ *
+ * @param modelId - The requested model ID (e.g., "claude-3-5-sonnet-20241022")
+ * @param context - Optional context string for logging (e.g., "messages", "count_tokens")
+ * @returns The effective model ID to use after applying configuration
+ */
+const applyClaudeModelSelection = (
+  modelId: string,
+  context: string = "request",
+): string => {
+  const ANTHROPIC_MODEL_PREFIX = "claude";
+
+  // Get Claude configured models
+  const claudeConfig = getClaudeConfiguredModels();
+
+  // If not a Claude model or no config, return as-is
+  if (!claudeConfig || !modelId.startsWith(ANTHROPIC_MODEL_PREFIX)) {
+    return modelId;
+  }
+
+  // Remove date suffix for comparison
+  const modelWithoutDate = modelId.replace(/-\d{8}$/, "");
+
+  // Check if requested model matches configured models
+  if (
+    modelWithoutDate !== claudeConfig.mainModel &&
+    modelWithoutDate !== claudeConfig.fastModel
+  ) {
+    // Unknown Claude model - default to main model
+    const effectiveModelId = claudeConfig.mainModel;
+    logger.info(
+      `⚡ ${context}: Unknown Claude model ${modelId}, using configured main model: ${effectiveModelId}`,
+    );
+    return effectiveModelId;
+  }
+
+  // Model matches config, use as-is
+  return modelId;
+};
 
 const prepareAnthropicMessages = async ({
   requestBody,
@@ -179,8 +227,15 @@ export function registerAnthropicRoutes(app: OpenAPIHono) {
         JSON.stringify(requestBody, null, 2),
       );
 
-      // 1. Check if selected model is available in VS Code LM API
-      const { client, error: clientError } = await getChatModelClient(modelId);
+      // 1. Apply Claude model selection logic
+      const effectiveModelId = applyClaudeModelSelection(
+        modelId,
+        "/v1/messages",
+      );
+
+      // 2. Check if selected model is available in VS Code LM API
+      const { client, error: clientError } =
+        await getChatModelClient(effectiveModelId);
 
       if (clientError) {
         return c.json(clientError, 404);
@@ -190,7 +245,7 @@ export function registerAnthropicRoutes(app: OpenAPIHono) {
         `Received /v1/messages call with selected model: ${client.name} (${client.vendor}/${client.family})`,
       );
 
-      // 2. Map Anthropic messages to VS Code LM API messages and count input tokens
+      // 3. Map Anthropic messages to VS Code LM API messages and count input tokens
       const { vsCodeLmMessages, inputTokenCount, cancellationToken } =
         await prepareAnthropicMessages({
           requestBody,
@@ -452,9 +507,16 @@ export function registerAnthropicRoutes(app: OpenAPIHono) {
       const requestBody =
         (await c.req.json()) as Anthropic.Messages.MessageCreateParams;
 
-      const { client, error: clientError } = await getChatModelClient(
-        requestBody.model,
+      const { model: modelId } = requestBody;
+
+      // Apply the same model selection logic as /v1/messages
+      const effectiveModelId = applyClaudeModelSelection(
+        modelId,
+        "/v1/messages/count_tokens",
       );
+
+      const { client, error: clientError } =
+        await getChatModelClient(effectiveModelId);
 
       if (clientError) {
         return c.json(clientError, 404);

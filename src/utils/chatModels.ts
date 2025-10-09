@@ -149,59 +149,14 @@ export const getChatModelsQuickPickItems = async (recommended?: string) => {
 };
 
 /**
- * Convert Anthropic API model ID to VSCode LM API model ID
+ * Get chat model client with integrated override logic
  */
-export const convertAnthropicModelToVSCodeModel = (modelId: string): string => {
-  // Remove date suffix (pattern: -YYYYMMDD at the end) for accurate pattern matching
-  const withoutDate = modelId.replace(/-\d{8}$/, "");
-
-  // Handle different model patterns
-  if (withoutDate === "claude-opus-4-1") {
-    return "claude-opus-41";
-  }
-
-  if (withoutDate === "claude-opus-4") {
-    return "claude-opus-4";
-  }
-
-  if (withoutDate === "claude-sonnet-4") {
-    return "claude-sonnet-4";
-  }
-
-  // Handle claude-3-5-haiku -> claude-3.5-sonnet
-  if (withoutDate === "claude-3-5-haiku") {
-    return "claude-3.5-sonnet";
-  }
-
-  // Handle claude-3-haiku -> claude-3.5-sonnet
-  if (withoutDate === "claude-3-haiku") {
-    return "claude-3.5-sonnet";
-  }
-
-  // If no pattern matches or claude-3-7 models, return a default model ID as fallback
-  logger.warn(
-    `No matching model found for ID: ${modelId}. Falling back to default model ID "claude-3.5-sonnet".`,
-  );
-  return "claude-3.5-sonnet";
-};
-
-/**
- * Generic function to get a chat model client with automatic model conversion
- */
-const ANTHROPIC_MODEL_PREFIX = "claude";
 export const getChatModelClient = async (modelId: string) => {
-  // Convert official Anthropic API model ID to VSCode LM API model ID
-  const vsCodeModelId = modelId.startsWith(ANTHROPIC_MODEL_PREFIX)
-    ? convertAnthropicModelToVSCodeModel(modelId)
-    : modelId;
-
   const models = await chatModelsCache.getChatModels();
-  const client = models.find((m) => m.id === vsCodeModelId);
+  const client = models.find((m) => m.id === modelId);
 
   if (!client) {
-    logger.error(
-      `No VS Code LM model available for model ID: ${modelId} (converted to: ${vsCodeModelId})`,
-    );
+    logger.error(`No VS Code LM model available for model ID: ${modelId} `);
     return {
       error: {
         error: {
