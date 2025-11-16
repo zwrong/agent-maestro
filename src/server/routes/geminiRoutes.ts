@@ -536,8 +536,28 @@ export function registerGeminiRoutes(app: OpenAPIHono) {
               throw streamError;
             }
           },
-          async (error, _stream) => {
+          async (error, stream) => {
             logger.error("Stream error occurred:", error);
+
+            // Send final chunk with error finish reason
+            const errorChunk: GenerateContentResponse = {
+              candidates: [
+                {
+                  finishReason: FinishReason.FINISH_REASON_UNSPECIFIED,
+                  index: 0,
+                },
+              ],
+              usageMetadata: {
+                promptTokenCount: inputTokenCount,
+                candidatesTokenCount: 0,
+                totalTokenCount: inputTokenCount,
+              },
+              modelVersion: modelId,
+            };
+
+            await stream.writeSSE({
+              data: JSON.stringify(errorChunk),
+            });
           },
         );
       } catch (error) {
