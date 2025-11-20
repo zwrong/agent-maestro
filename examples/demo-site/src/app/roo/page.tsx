@@ -10,7 +10,7 @@ import { StatusIndicator } from "./components/StatusIndicator";
 import { useApiConfig } from "./hooks/useApiConfig";
 import { useChat } from "./hooks/useChat";
 import { useModes } from "./hooks/useModes";
-import { useProviders } from "./hooks/useProviders";
+import { useProfiles } from "./hooks/useProfiles";
 
 export default function RooPage() {
   const [isHydrated, setIsHydrated] = useState(false);
@@ -38,19 +38,14 @@ export default function RooPage() {
     setInputValue,
     setSelectedMode,
     setSelectedExtension,
-  } = useChat({ apiBaseUrl: apiConfig.baseUrl });
+  } = useChat();
 
   const { modes, isLoading: isLoadingModes } = useModes({
     apiBaseUrl: apiConfig.baseUrl,
     extensionId: selectedExtension,
   });
 
-  const {
-    currentProvider,
-    currentModel,
-    providers,
-    isLoading: isLoadingProviders,
-  } = useProviders({
+  const { profiles, isLoading: isLoadingProfiles } = useProfiles({
     apiBaseUrl: apiConfig.baseUrl,
     extensionId: selectedExtension,
   });
@@ -89,15 +84,7 @@ export default function RooPage() {
 
   return (
     <div className="h-screen flex flex-col bg-gradient-to-br from-indigo-500 to-purple-600">
-      <ChatHeader
-        onNewChat={handleNewChat}
-        hasMessages={messages.length > 0}
-        isConnected={apiConfig.isConnected}
-        connectionUrl={apiConfig.baseUrl}
-        onDisconnect={apiConfig.disconnect}
-        workspace={apiConfig.workspace}
-        agentMaestroVersion={apiConfig.agentMaestroVersion}
-      />
+      <ChatHeader onNewChat={handleNewChat} hasMessages={messages.length > 0} />
 
       <MessageList
         messages={messages}
@@ -117,11 +104,8 @@ export default function RooPage() {
         hasMessages={messages.length > 0}
         modes={modes}
         isLoadingModes={isLoadingModes}
-        apiBaseUrl={apiConfig.baseUrl}
-        currentProvider={currentProvider}
-        currentModel={currentModel}
-        providers={providers}
-        isLoadingProviders={isLoadingProviders}
+        profiles={profiles}
+        isLoadingProfiles={isLoadingProfiles}
       />
 
       <StatusIndicator show={showStatus} message={statusMessage} />
