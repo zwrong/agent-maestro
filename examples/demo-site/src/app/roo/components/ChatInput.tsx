@@ -1,14 +1,16 @@
 import React, { useEffect, useRef } from "react";
 
+import type { AutoApproveSettings } from "../hooks/useAutoApprove";
 import {
   autoResizeTextarea,
   focusTextarea,
   resetTextarea,
 } from "../utils/chatHelpers";
 import { UI_CONFIG } from "../utils/constants";
+import { AutoApproveSettingsComponent } from "./AutoApproveSettings";
 import { ExtensionSelector } from "./ExtensionSelector";
 import { ModeSelector } from "./ModeSelector";
-import { ProviderSelector } from "./ProviderSelector";
+import { ProfileSelector } from "./ProfileSelector";
 
 interface Mode {
   slug: string;
@@ -35,7 +37,7 @@ interface ChatInputProps {
   placeholder?: string;
   selectedMode: string;
   onModeChange: (mode: string) => void;
-  selectedExtension: string;
+  selectedExtension?: string;
   onExtensionChange: (extension: string) => void;
   hasMessages: boolean;
   modes?: Mode[];
@@ -43,6 +45,13 @@ interface ChatInputProps {
   apiBaseUrl?: string | null;
   profiles?: Profile[];
   isLoadingProfiles?: boolean;
+  autoApproveSettings?: AutoApproveSettings;
+  onUpdateAutoApprove?: (
+    settings: Partial<AutoApproveSettings>,
+  ) => Promise<boolean>;
+  isLoadingAutoApprove?: boolean;
+  isUpdatingAutoApprove?: boolean;
+  autoApproveError?: string | null;
 }
 
 export const ChatInput: React.FC<ChatInputProps> = ({
@@ -61,6 +70,11 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   apiBaseUrl,
   profiles = [],
   isLoadingProfiles = false,
+  autoApproveSettings,
+  onUpdateAutoApprove,
+  isLoadingAutoApprove = false,
+  isUpdatingAutoApprove = false,
+  autoApproveError = null,
 }) => {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -103,7 +117,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
             modes={modes}
             isLoadingModes={isLoadingModes}
           />
-          <ProviderSelector
+          <ProfileSelector
             profiles={profiles}
             isLoading={isLoadingProfiles}
             disabled={disabled}
@@ -115,6 +129,20 @@ export const ChatInput: React.FC<ChatInputProps> = ({
             apiBaseUrl={apiBaseUrl}
           />
         </div>
+
+        {/* Auto-approve settings - above input on mobile */}
+        {autoApproveSettings && onUpdateAutoApprove && (
+          <div className="mb-3 sm:hidden">
+            <AutoApproveSettingsComponent
+              settings={autoApproveSettings}
+              onUpdateSettings={onUpdateAutoApprove}
+              isLoading={isLoadingAutoApprove}
+              isUpdating={isUpdatingAutoApprove}
+              disabled={disabled}
+              error={autoApproveError}
+            />
+          </div>
+        )}
 
         {/* Input Area */}
         <div className="flex gap-2 sm:gap-3 items-end">
@@ -144,7 +172,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               modes={modes}
               isLoadingModes={isLoadingModes}
             />
-            <ProviderSelector
+            <ProfileSelector
               profiles={profiles}
               isLoading={isLoadingProfiles}
               disabled={disabled}
@@ -157,6 +185,20 @@ export const ChatInput: React.FC<ChatInputProps> = ({
             />
           </div>
         </div>
+
+        {/* Auto-approve settings - below input on desktop */}
+        {autoApproveSettings && onUpdateAutoApprove && (
+          <div className="hidden sm:block mt-3">
+            <AutoApproveSettingsComponent
+              settings={autoApproveSettings}
+              onUpdateSettings={onUpdateAutoApprove}
+              isLoading={isLoadingAutoApprove}
+              isUpdating={isUpdatingAutoApprove}
+              disabled={disabled}
+              error={autoApproveError}
+            />
+          </div>
+        )}
       </div>
     </div>
   );
