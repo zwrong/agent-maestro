@@ -16,6 +16,8 @@ import {
 } from "../utils/anthropic";
 import { handleErrorWithLogging } from "../utils/errorDiagnostics";
 
+const ANTHROPIC_MODEL_PREFIX = "claude";
+
 /**
  * Apply Claude model selection logic based on user configuration
  *
@@ -33,8 +35,6 @@ const applyClaudeModelSelection = (
   modelId: string,
   context: string = "request",
 ): string => {
-  const ANTHROPIC_MODEL_PREFIX = "claude";
-
   // Get Claude configured models
   const claudeConfig = getClaudeConfiguredModels();
 
@@ -225,12 +225,16 @@ const countTokensRoute = createRoute({
 export function registerAnthropicRoutes(app: OpenAPIHono) {
   // POST /v1/messages - Anthropic-compatible messages endpoint
   app.openapi(messagesRoute, async (c: Context): Promise<Response> => {
-    let effectiveModelId: string | undefined;
-    let requestBody;
+    let effectiveModelId = "";
+    let rawRequestBody;
+    let lmChatMessages: vscode.LanguageModelChatMessage[] | undefined;
+
     try {
       // Parse request body
-      requestBody =
+      const requestBody =
         (await c.req.json()) as Anthropic.Messages.MessageCreateParams;
+      rawRequestBody = requestBody;
+
       const {
         model: modelId,
         system,
@@ -266,6 +270,7 @@ export function registerAnthropicRoutes(app: OpenAPIHono) {
           requestBody,
           client,
         });
+      lmChatMessages = vsCodeLmMessages;
 
       // 3. Build VS Code Language Model request options
       const lmRequestOptions: vscode.LanguageModelChatRequestOptions = {
@@ -500,9 +505,10 @@ export function registerAnthropicRoutes(app: OpenAPIHono) {
       logger.error("Anthropic API /v1/messages request failed:", error);
 
       const logFilePath = await handleErrorWithLogging({
-        requestBody,
+        requestBody: rawRequestBody,
+        lmChatMessages,
         error,
-        endpoint: "/v1/messages",
+        endpoint: "/api/anthropic/v1/messages",
         modelId: effectiveModelId,
       });
 
@@ -524,14 +530,12 @@ export function registerAnthropicRoutes(app: OpenAPIHono) {
 
   // POST /v1/messages/count_tokens - Count input tokens
   app.openapi(countTokensRoute, async (c: Context) => {
-    let modelId: string | undefined;
-    let requestBody;
     try {
-      requestBody =
+      const requestBody =
         (await c.req.json()) as Anthropic.Messages.MessageCreateParams;
 
       // Apply the same model selection logic as /v1/messages
-      modelId = applyClaudeModelSelection(
+      const modelId = applyClaudeModelSelection(
         requestBody.model,
         "/v1/messages/count_tokens",
       );
@@ -556,22 +560,12 @@ export function registerAnthropicRoutes(app: OpenAPIHono) {
     } catch (error) {
       logger.error("Anthropic API token count request failed:", error);
 
-      const logFilePath = await handleErrorWithLogging({
-        requestBody,
-        error,
-        endpoint: "/v1/messages/count_tokens",
-        modelId,
-      });
-
-      const errorMessage =
-        error instanceof Error ? error.message : JSON.stringify(error);
-
       return c.json(
         {
           error: {
-            message: errorMessage,
+            message:
+              error instanceof Error ? error.message : JSON.stringify(error),
             type: "internal_server_error",
-            log_file: logFilePath,
           },
         },
         500,
