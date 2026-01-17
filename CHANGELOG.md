@@ -1,5 +1,10 @@
 # Changelog
 
+## v2.5.3 - 2026.01.17
+
+- Mitigate "unexpected `tool_use_id` found in `tool_result` blocks" 400 errors by calibrating Anthropic token counts with linear regression to trigger auto-compact before context window limit is exceeded
+- Improve token counting for Gemini and OpenAI APIs by including full request payload (tools, config, system instructions)
+
 ## v2.5.2 - 2025.12.28
 
 - Added comprehensive error diagnostics with detailed logging for Anthropic, Gemini, and OpenAI API routes
