@@ -13,6 +13,7 @@ import {
   convertAnthropicSystemToVSCode,
   convertAnthropicToolChoiceToVSCode,
   convertAnthropicToolToVSCode,
+  countAnthropicMessageTokens,
 } from "../utils/anthropic";
 import { handleErrorWithLogging } from "../utils/errorDiagnostics";
 
@@ -70,6 +71,9 @@ const prepareAnthropicMessages = async ({
   requestBody: Anthropic.Messages.MessageCreateParams;
   client: vscode.LanguageModelChat;
 }) => {
+  const requestBodyStr = JSON.stringify(requestBody);
+  logger.debug("/v1/messages payload: ", requestBodyStr);
+
   const { system, messages } = requestBody;
 
   const vsCodeLmMessages: vscode.LanguageModelChatMessage[] = [
@@ -77,11 +81,11 @@ const prepareAnthropicMessages = async ({
     ...convertAnthropicMessagesToVSCode(messages),
   ];
 
-  let inputTokenCount = 0;
   const cancellationToken = new vscode.CancellationTokenSource().token;
-  for (const msg of vsCodeLmMessages) {
-    inputTokenCount += await client.countTokens(msg, cancellationToken);
-  }
+  const inputTokenCount = await countAnthropicMessageTokens(
+    requestBodyStr,
+    client,
+  );
 
   return {
     vsCodeLmMessages,
@@ -228,6 +232,7 @@ export function registerAnthropicRoutes(app: OpenAPIHono) {
     let effectiveModelId = "";
     let rawRequestBody;
     let lmChatMessages: vscode.LanguageModelChatMessage[] | undefined;
+    let inputTokens = 0;
 
     try {
       // Parse request body
@@ -244,11 +249,6 @@ export function registerAnthropicRoutes(app: OpenAPIHono) {
         ...msgCreateParams
       } = requestBody;
 
-      logger.debug(
-        "/v1/messages payload: ",
-        JSON.stringify(requestBody, null, 2),
-      );
-
       // 1. Apply Claude model selection logic
       effectiveModelId = applyClaudeModelSelection(modelId, "/v1/messages");
 
@@ -260,10 +260,6 @@ export function registerAnthropicRoutes(app: OpenAPIHono) {
         return c.json(clientError, 404);
       }
 
-      logger.info(
-        `Received /v1/messages call with selected model: ${client.name} (${client.vendor}/${client.family})`,
-      );
-
       // 3. Map Anthropic messages to VS Code LM API messages and count input tokens
       const { vsCodeLmMessages, inputTokenCount, cancellationToken } =
         await prepareAnthropicMessages({
@@ -271,8 +267,13 @@ export function registerAnthropicRoutes(app: OpenAPIHono) {
           client,
         });
       lmChatMessages = vsCodeLmMessages;
+      inputTokens = inputTokenCount.calibrated;
 
-      // 3. Build VS Code Language Model request options
+      logger.info(
+        `Received /v1/messages call with model: ${client.name} (${client.vendor}/${client.family}) | Input tokens: ${inputTokenCount.original} → ${inputTokenCount.calibrated}`,
+      );
+
+      // 4. Build VS Code Language Model request options
       const lmRequestOptions: vscode.LanguageModelChatRequestOptions = {
         justification:
           "Anthropic-compatible /v1/messages endpoint with streaming support using VS Code Language Model API",
@@ -281,14 +282,14 @@ export function registerAnthropicRoutes(app: OpenAPIHono) {
         toolMode: convertAnthropicToolChoiceToVSCode(tool_choice),
       };
 
-      // 4. Send request to the VS Code LM API
+      // 5. Send request to the VS Code LM API
       const response = await client.sendRequest(
         vsCodeLmMessages,
         lmRequestOptions,
         cancellationToken,
       );
 
-      // 5. Non-streaming response: collect content blocks using unified approach
+      // 6. Non-streaming response: collect content blocks using unified approach
       if (!msgCreateParams.stream) {
         const content: Anthropic.Messages.ContentBlock[] = [];
         let accumulatedText = "";
@@ -316,8 +317,8 @@ export function registerAnthropicRoutes(app: OpenAPIHono) {
 
         // Count output tokens
         const outputTokenCount = accumulatedText
-          ? await client.countTokens(accumulatedText)
-          : 1;
+          ? await countAnthropicMessageTokens(accumulatedText, client, false)
+          : { original: 1, calibrated: 1 };
 
         // https://docs.anthropic.com/en/api/messages#response-id
         const resp: Anthropic.Messages.Message = {
@@ -333,8 +334,8 @@ export function registerAnthropicRoutes(app: OpenAPIHono) {
             cache_creation: null,
             cache_creation_input_tokens: null,
             cache_read_input_tokens: null,
-            input_tokens: inputTokenCount,
-            output_tokens: outputTokenCount,
+            input_tokens: inputTokenCount.calibrated,
+            output_tokens: outputTokenCount.calibrated,
             server_tool_use: null,
             service_tier: null,
           },
@@ -342,11 +343,14 @@ export function registerAnthropicRoutes(app: OpenAPIHono) {
         };
 
         logger.debug("/v1/messages response: ", JSON.stringify(resp, null, 2));
+        logger.info(
+          `/v1/messages completed - Input: ${inputTokenCount.original} → ${inputTokenCount.calibrated}, Output: ${outputTokenCount.original} → ${outputTokenCount.calibrated}`,
+        );
 
         return c.json(resp);
       }
 
-      // 6. If streaming, pipe chunks as SSE
+      // 7. If streaming, pipe chunks as SSE
       return streamSSE(
         c,
         async (stream) => {
@@ -371,7 +375,7 @@ export function registerAnthropicRoutes(app: OpenAPIHono) {
               stop_sequence: null,
               usage: {
                 cache_creation: null,
-                input_tokens: inputTokenCount,
+                input_tokens: inputTokenCount.calibrated,
                 output_tokens: 1,
                 cache_creation_input_tokens: null,
                 cache_read_input_tokens: null,
@@ -472,8 +476,8 @@ export function registerAnthropicRoutes(app: OpenAPIHono) {
 
           // Count output tokens for the complete response
           const outputTokenCount = accumulatedText
-            ? await client.countTokens(accumulatedText)
-            : 1;
+            ? await countAnthropicMessageTokens(accumulatedText, client, false)
+            : { original: 1, calibrated: 1 };
 
           await writeSSE({
             type: "message_delta",
@@ -485,8 +489,8 @@ export function registerAnthropicRoutes(app: OpenAPIHono) {
               stop_sequence: null,
             },
             usage: {
-              input_tokens: inputTokenCount,
-              output_tokens: outputTokenCount,
+              input_tokens: inputTokenCount.calibrated,
+              output_tokens: outputTokenCount.calibrated,
               cache_creation_input_tokens: 0,
               cache_read_input_tokens: 0,
               server_tool_use: null,
@@ -495,7 +499,9 @@ export function registerAnthropicRoutes(app: OpenAPIHono) {
 
           await writeSSE({ type: "message_stop" });
 
-          logger.info("Streaming response completed");
+          logger.info(
+            `Streaming response completed - Input: ${inputTokenCount.original} → ${inputTokenCount.calibrated}, Output: ${outputTokenCount.original} → ${outputTokenCount.calibrated}`,
+          );
         },
         async (error, _stream) => {
           logger.error("Stream error occurred:", error);
@@ -506,6 +512,7 @@ export function registerAnthropicRoutes(app: OpenAPIHono) {
 
       const logFilePath = await handleErrorWithLogging({
         requestBody: rawRequestBody,
+        inputTokens,
         lmChatMessages,
         error,
         endpoint: "/api/anthropic/v1/messages",
@@ -515,12 +522,19 @@ export function registerAnthropicRoutes(app: OpenAPIHono) {
       const errorMessage =
         error instanceof Error ? error.message : JSON.stringify(error);
 
+      const isToolResultError = errorMessage.includes(
+        "`tool_result` block must have a corresponding `tool_use` block in the previous message",
+      );
+
       return c.json(
         {
           error: {
             message: errorMessage,
             type: "internal_server_error",
             log_file: logFilePath,
+            ...(isToolResultError && {
+              hint: "This error may occur when input tokens exceed the model's context limit. Please use the /compact command to reduce the conversation history.",
+            }),
           },
         },
         500,
@@ -553,7 +567,7 @@ export function registerAnthropicRoutes(app: OpenAPIHono) {
 
       return c.json(
         {
-          input_tokens: inputTokenCount,
+          input_tokens: inputTokenCount.calibrated,
         },
         200,
       );
