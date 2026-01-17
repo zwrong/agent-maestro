@@ -91,17 +91,13 @@ export function registerOpenaiRoutes(app: OpenAPIHono) {
     let rawRequestBody: OpenAI.ChatCompletionCreateParams | undefined;
     let lmChatMessages: vscode.LanguageModelChatMessage[] | undefined;
     let requestedModelId = "";
+    let inputTokens = 0;
 
     try {
       // Parse and validate request body
       const requestBody =
         (await c.req.json()) as OpenAI.ChatCompletionCreateParams;
       rawRequestBody = requestBody;
-
-      logger.debug(
-        "/chat/completions payload: ",
-        JSON.stringify(requestBody, null, 2),
-      );
 
       const {
         model: modelId,
@@ -128,12 +124,18 @@ export function registerOpenaiRoutes(app: OpenAPIHono) {
       const vsCodeLmMessages = convertOpenAIMessagesToVSCode(messages);
       lmChatMessages = vsCodeLmMessages;
 
-      // Count input tokens
-      let inputTokenCount = 0;
+      // NOTE: Rough estimation of input tokens for OpenAI API
+      // We pass the stringified request body to VSCode's countTokens() API, which is technically
+      // a misuse since it's designed for LanguageModelChatMessage objects. However, we intentionally
+      // do this to leverage the official tokenizer instead of building our own wheel.
+      const requestBodyStr = JSON.stringify(requestBody);
+      logger.debug("/chat/completions payload: ", requestBodyStr);
       const cancellationToken = new vscode.CancellationTokenSource().token;
-      for (const msg of vsCodeLmMessages) {
-        inputTokenCount += await client.countTokens(msg, cancellationToken);
-      }
+      const inputTokenCount = await client.countTokens(
+        requestBodyStr,
+        cancellationToken,
+      );
+      inputTokens = inputTokenCount;
 
       // 3. Build VSCode Language Model request options
       const lmRequestOptions: vscode.LanguageModelChatRequestOptions = {
@@ -375,6 +377,7 @@ export function registerOpenaiRoutes(app: OpenAPIHono) {
 
       const logFilePath = await handleErrorWithLogging({
         requestBody: rawRequestBody,
+        inputTokens,
         lmChatMessages,
         error,
         endpoint: "/api/openai/chat/completions",
