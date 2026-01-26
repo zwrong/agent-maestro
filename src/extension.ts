@@ -54,6 +54,9 @@ export async function activate(context: vscode.ExtensionContext) {
   const proxyPort = envProxyPort ? envProxyPort : config.proxyServerPort;
   proxy = new ProxyServer(controller, proxyPort, context);
 
+  // Restore API key from secrets storage
+  await proxy.restoreApiKey();
+
   // Register all commands
   registerAllCommands(context, controller, proxy, mcpServer);
 
