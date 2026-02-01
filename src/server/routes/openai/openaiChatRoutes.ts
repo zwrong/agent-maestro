@@ -4,19 +4,19 @@ import { streamSSE } from "hono/streaming";
 import OpenAI from "openai";
 import * as vscode from "vscode";
 
-import { getChatModelClient } from "../../utils/chatModels";
-import { logger } from "../../utils/logger";
-import { CommonResponseError } from "../schemas/openai";
-import { handleErrorWithLogging } from "../utils/errorDiagnostics";
+import { getChatModelClient } from "../../../utils/chatModels";
+import { logger } from "../../../utils/logger";
+import { CommonResponseError } from "../../schemas/openai";
+import { handleErrorWithLogging } from "../../utils/errorDiagnostics";
 import {
   convertOpenAIChatCompletionToolToVSCode,
   convertOpenAIMessagesToVSCode,
-} from "../utils/openai";
+} from "../../utils/openaiChat";
 
-// OpenAPI route definition for /chat/completions
+// OpenAPI route definition for /v1/chat/completions
 const chatCompletionsRoute = createRoute({
   method: "post",
-  path: "/chat/completions",
+  path: "/v1/chat/completions",
   tags: ["OpenAI API"],
   summary: "Create a chat completion with OpenAI-compatible API",
   description:
@@ -85,8 +85,8 @@ const chatCompletionsRoute = createRoute({
   },
 });
 
-export function registerOpenaiRoutes(app: OpenAPIHono) {
-  // POST /chat/completions - OpenAI-compatible chat completions endpoint
+export function registerOpenaiChatRoutes(app: OpenAPIHono) {
+  // POST /v1/chat/completions - OpenAI-compatible chat completions endpoint
   app.openapi(chatCompletionsRoute, async (c: Context): Promise<Response> => {
     let rawRequestBody: OpenAI.ChatCompletionCreateParams | undefined;
     let lmChatMessages: vscode.LanguageModelChatMessage[] | undefined;
@@ -121,7 +121,7 @@ export function registerOpenaiRoutes(app: OpenAPIHono) {
       // a misuse since it's designed for LanguageModelChatMessage objects. However, we intentionally
       // do this to leverage the official tokenizer instead of building our own wheel.
       const requestBodyStr = JSON.stringify(requestBody);
-      logger.debug("/chat/completions payload: ", requestBodyStr);
+      logger.debug("/v1/chat/completions payload: ", requestBodyStr);
       const cancellationToken = new vscode.CancellationTokenSource().token;
       const inputTokenCount = await client.countTokens(
         requestBodyStr,
@@ -130,7 +130,7 @@ export function registerOpenaiRoutes(app: OpenAPIHono) {
       inputTokens = inputTokenCount;
 
       logger.info(
-        `→ /chat/completions | model: ${
+        `→ /v1/chat/completions | model: ${
           modelId === client.id ? modelId : `${modelId} → ${client.id}`
         } | input: ${inputTokenCount}`,
       );
@@ -211,11 +211,11 @@ export function registerOpenaiRoutes(app: OpenAPIHono) {
         };
 
         logger.debug(
-          "/chat/completions response: ",
+          "/v1/chat/completions response: ",
           JSON.stringify(openaiResponse, null, 2),
         );
         logger.info(
-          `← /chat/completions | input: ${inputTokenCount} | output: ${completionTokens}`,
+          `← /v1/chat/completions | input: ${inputTokenCount} | output: ${completionTokens}`,
         );
 
         return c.json(openaiResponse);
@@ -349,11 +349,11 @@ export function registerOpenaiRoutes(app: OpenAPIHono) {
           });
 
           logger.info(
-            `← /chat/completions (stream) | input: ${inputTokenCount} | output: ${usage?.completion_tokens ?? 0}`,
+            `← /v1/chat/completions (stream) | input: ${inputTokenCount} | output: ${usage?.completion_tokens ?? 0}`,
           );
         },
         async (error, stream) => {
-          logger.error("✕ /chat/completions (stream) |", error);
+          logger.error("✕ /v1/chat/completions (stream) |", error);
 
           // Send error chunk to client before closing
           const errorMessage =
@@ -380,14 +380,14 @@ export function registerOpenaiRoutes(app: OpenAPIHono) {
         },
       );
     } catch (error) {
-      logger.error("✕ /chat/completions |", error);
+      logger.error("✕ /v1/chat/completions |", error);
 
       const logFilePath = await handleErrorWithLogging({
         requestBody: rawRequestBody,
         inputTokens,
         lmChatMessages,
         error,
-        endpoint: "/api/openai/chat/completions",
+        endpoint: "/api/openai/v1/chat/completions",
         modelId: requestedModelId,
       });
 
